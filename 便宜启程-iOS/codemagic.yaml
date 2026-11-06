@@ -1,0 +1,54 @@
+workflows:
+  # 只检查 iOS 能否编译（不需要苹果账号签名），适合先看构建日志。
+  ios-compile-check:
+    name: iOS compile check (no signing)
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    environment:
+      flutter: 3.47.9
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Flutter packages
+        script: flutter pub get
+      - name: CocoaPods
+        script: |
+          cd ios
+          pod install
+      - name: Build without code signing
+        script: flutter build ios --release --no-codesign
+    artifacts:
+      - build/ios/iphoneos/Runner.app
+
+  # 正式 TestFlight：需要先在 Codemagic 里连接 Apple Developer 和 App Store Connect。
+  ios-testflight:
+    name: iOS TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: 3.47.9
+      xcode: latest
+      cocoapods: default
+      # 在 Codemagic 的 Team settings → Integrations 里配置好苹果集成后，
+      # 这一段会自动拉取证书和描述文件。
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.pianyi.qicheng.flutter
+    scripts:
+      - name: Flutter packages
+        script: flutter pub get
+      - name: Configure signing on the Xcode project
+        script: xcode-project use-profiles
+      - name: Build IPA
+        script: |
+          flutter build ipa --release \
+            --export-options-plist=$CM_BUILD_DIR/ios/ExportOptions.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      # 如果 Codemagic 里已经接入 App Store Connect，保留下面两行即可自动上传 TestFlight；
+      # 没有接入就删掉 publishing 整段，构建完下载 IPA 用 Transporter 上传。
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
